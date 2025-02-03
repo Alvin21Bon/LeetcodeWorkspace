@@ -1,0 +1,5 @@
+Diagnostics:
+  UnusedIncludes: None
+CompileFlags:
+  Compiler: gcc
+  Add: [-xc, -std=c11, -std=gnu11, -Wall, -Wextra]

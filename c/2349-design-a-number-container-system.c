@@ -57,6 +57,11 @@ MinHeap minHeapInit()
 	return dynamicArray();
 }
 
+void minHeapDestroy(MinHeap* heap)
+{
+	arrayDestroy(heap);
+}
+
 int heapGetParentIdx(int childIdx) { return ((childIdx + 1) / 2) - 1; }
 int heapGetLeftChildIdx(int parentIdx) { return 2 * parentIdx + 1; }
 int heapGetRightChildIdx(int parentIdx) { return 2 * parentIdx + 2; }
@@ -84,51 +89,197 @@ int* heapGetRightChild(MinHeap* heap, int parentIdx)
 
 void minHeapify(MinHeap* heap, int rootIdx)
 {
+	int leftChildIdx = heapGetLeftChildIdx(rootIdx);
+	int rightChildIdx = heapGetRightChildIdx(rootIdx);
+	int rootValue = heap->array[rootIdx];
 	int* leftChild = heapGetLeftChild(heap, rootIdx);
 	int* rightChild = heapGetRightChild(heap, rootIdx);
-	int rootValue = heap->array[rootIdx];
-	while (leftChild != NULL && rightChild != NULL)
-	{
-		int swapIdx;
-		int lowestValue;
-	} 
+
+	int leftChildDifference = 0;
+	int rightChildDifference = 0;
+	if (leftChild != NULL) leftChildDifference = rootValue - *leftChild;
+	if (rightChild != NULL) rightChildDifference = rootValue - *rightChild;
+
+	int swapIdx;
+	if (leftChildDifference <= 0 && rightChildDifference <= 0) return;
+	else if (leftChildDifference >= rightChildDifference) swapIdx = leftChildIdx;
+	else swapIdx = rightChildIdx;
+
+	arraySwap(heap, rootIdx, swapIdx);
+	minHeapify(heap, swapIdx);
 }
 
 void buildMinHeap(MinHeap* heap)
 {
-
+	int lastNonLeafNodeIdx = heapGetParentIdx(heap->length - 1);
+	for (int subTreeRootIdx = lastNonLeafNodeIdx; subTreeRootIdx >= 0; subTreeRootIdx--)
+	{
+		minHeapify(heap, subTreeRootIdx);
+	}
 }
 
+void heapInsert(MinHeap* heap, int numToInsert)
+{
+	arrayAdd(heap, numToInsert);
+
+	int insertedNodeIdx = heap->length - 1;
+	int currentParentIdx = heapGetParentIdx(insertedNodeIdx);
+	int* currentParent = heapGetParent(heap, insertedNodeIdx);
+
+	while (currentParent != NULL && *currentParent > numToInsert)
+	{
+		arraySwap(heap, insertedNodeIdx, currentParentIdx);
+
+		insertedNodeIdx = currentParentIdx;
+		currentParentIdx = heapGetParentIdx(insertedNodeIdx);
+		currentParent = heapGetParent(heap, insertedNodeIdx);
+	}
+}
+
+int heapFind(MinHeap* heap, int numToFind)
+{
+	for (int i = 0; i < heap->length; i++)
+	{
+		if (heap->array[i] == numToFind) return i;
+	}
+
+	return -1;
+}
+
+void heapDelete(MinHeap* heap, int numToDelete)
+{
+	int idxOfNodeToDelete = heapFind(heap, numToDelete);
+	if (idxOfNodeToDelete == -1) return;
+
+	arraySwap(heap, idxOfNodeToDelete, heap->length - 1);
+	arrayDeleteEnd(heap);
+	minHeapify(heap, idxOfNodeToDelete);
+}
+
+// #############################################################
+
+struct NumToIdxHash {
+	int numKey;
+	MinHeap indexMinHeap;
+	UT_hash_handle hh;
+};
+
+struct NumToIdxHash* numToIdxHashCreate(int numKey)
+{
+	struct NumToIdxHash* hash = malloc(sizeof(*hash));
+	hash->numKey = numKey;
+	hash->indexMinHeap = minHeapInit();
+
+	return hash;
+}
+
+void numToIdxHashTableDestroy(struct NumToIdxHash** hashTable)
+{
+	struct NumToIdxHash *currentItem, *tmpItem;
+	HASH_ITER(hh, *hashTable, currentItem, tmpItem)
+	{
+		HASH_DEL(*hashTable, currentItem);
+		minHeapDestroy(&currentItem->indexMinHeap);
+		free(currentItem);
+	}
+}
+
+struct IdxToNumHash {
+	int idxKey;
+	int num;
+	UT_hash_handle hh;
+};
+
+struct IdxToNumHash* idxToNumHashCreate(int idxKey)
+{
+	struct IdxToNumHash* hash = malloc(sizeof(*hash));
+	hash->idxKey = idxKey;
+
+	return hash;
+}
+
+void idxToNumHashTableDestroy(struct IdxToNumHash** hashTable)
+{
+	struct IdxToNumHash *currentItem, *tmpItem;
+	HASH_ITER(hh, *hashTable, currentItem, tmpItem)
+	{
+		HASH_DEL(*hashTable, currentItem);
+		free(currentItem);
+	}
+}
+
+// #############################################################
+
 typedef struct {
-    
+	struct NumToIdxHash* numToIdxHashTable;
+	struct IdxToNumHash* idxToNumHashTable;
 } NumberContainers;
 
 
 NumberContainers* numberContainersCreate() 
 {
-    
+	NumberContainers* numberContainer = malloc(sizeof(*numberContainer));
+	numberContainer->numToIdxHashTable = NULL;
+	numberContainer->idxToNumHashTable = NULL;
+
+	return numberContainer;
 }
 
 void numberContainersChange(NumberContainers* obj, int index, int number) 
 {
-    
+	struct NumToIdxHash* numToIdxHash;
+	struct IdxToNumHash* idxToNumHash;
+
+	HASH_FIND_INT(obj->idxToNumHashTable, &index, idxToNumHash);
+	if (idxToNumHash == NULL)
+	{
+		idxToNumHash = idxToNumHashCreate(index);
+		idxToNumHash->num = number;
+		HASH_ADD_INT(obj->idxToNumHashTable, idxKey, idxToNumHash);
+	}
+	else
+	{
+		if (idxToNumHash->num == number) return;
+		idxToNumHash->num = number;
+	}
+
+	HASH_FIND_INT(obj->numToIdxHashTable, &number, numToIdxHash);
+	if (numToIdxHash == NULL)
+	{
+		numToIdxHash = numToIdxHashCreate(number);
+		HASH_ADD_INT(obj->numToIdxHashTable, numKey, numToIdxHash);
+	}
+
+	heapInsert(&numToIdxHash->indexMinHeap, index);
 }
 
 int numberContainersFind(NumberContainers* obj, int number) 
 {
-    
+	struct NumToIdxHash* numToIdxHash;
+	HASH_FIND_INT(obj->numToIdxHashTable, &number, numToIdxHash);
+
+	if (numToIdxHash == NULL) return -1;
+	while (numToIdxHash->indexMinHeap.length > 0)
+	{
+		int idxToCheck = numToIdxHash->indexMinHeap.array[0];
+		struct IdxToNumHash* idxToNumHash;
+		HASH_FIND_INT(obj->idxToNumHashTable, &idxToCheck, idxToNumHash);
+
+		if (idxToNumHash->num == number) return idxToCheck;
+		heapDelete(&numToIdxHash->indexMinHeap, idxToCheck);
+	}
+
+	HASH_DEL(obj->numToIdxHashTable, numToIdxHash);
+	minHeapDestroy(&numToIdxHash->indexMinHeap);
+	free(numToIdxHash);
+
+	return -1;
 }
 
-void numberContainersFree(NumberContainers* obj) {
-    
+void numberContainersFree(NumberContainers* obj) 
+{
+	numToIdxHashTableDestroy(&obj->numToIdxHashTable);
+	idxToNumHashTableDestroy(&obj->idxToNumHashTable);
+	free(obj);
 }
 
-/**
- * Your NumberContainers struct will be instantiated and called as such:
- * NumberContainers* obj = numberContainersCreate();
- * numberContainersChange(obj, index, number);
- 
- * int param_2 = numberContainersFind(obj, number);
- 
- * numberContainersFree(obj);
-*/

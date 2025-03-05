@@ -7,7 +7,7 @@ struct Coords {
 
 struct Coords coords(int row, int column)
 {
-	struct Coords coords;
+	struct Coords coords = {0};
 	coords.row = row;
 	coords.column = column;
 	return coords;
@@ -35,7 +35,8 @@ void possibleNumbersHashTableInit(struct PossibleNumbersHash** unitializedHashTa
 	const int MAX_SUDOKU_DIGIT = 9;
 	for (int num = 1; num <= MAX_SUDOKU_DIGIT; num++)
 	{
-		HASH_ADD_INT(*unitializedHashTable, numberKey, possibleNumbersHashCreate(num));
+		struct PossibleNumbersHash* hashItem = possibleNumbersHashCreate(num);
+		HASH_ADD_INT(*unitializedHashTable, numberKey, hashItem);
 	}
 }
 
@@ -49,7 +50,18 @@ bool possibleNumbersHashTableDelete(struct PossibleNumbersHash** hashTable, int 
 		free(hashItem);
 		return true;
 	}
-	else return false;
+
+	return false;
+}
+
+void possibleNumbersHashTableDestroy(struct PossibleNumbersHash** hashTable)
+{
+	struct PossibleNumbersHash *hashItem, *tmp;
+	HASH_ITER(hh, *hashTable, hashItem, tmp)
+	{
+		HASH_DEL(*hashTable, hashItem);
+		free(hashItem);
+	}
 }
 
 // #########################################################
@@ -69,6 +81,17 @@ struct SudokuCoordinatesHash* sudokuCoordinatesHashCreate(struct Coords coords)
 	possibleNumbersHashTableInit(&hashItem->possibleNumbersHashTable);
 
 	return hashItem;
+}
+
+void sudokuCoordinatesHashTableDestroy(struct SudokuCoordinatesHash** hashTable)
+{
+	struct SudokuCoordinatesHash *hashItem, *tmp;
+	HASH_ITER(hh, *hashTable, hashItem, tmp)
+	{
+		HASH_DEL(*hashTable, hashItem);
+		possibleNumbersHashTableDestroy(&hashItem->possibleNumbersHashTable);
+		free(hashItem);
+	}
 }
 
 void sudokuCoordinatesHashDeletePossibleNum(struct SudokuCoordinatesHash* coordinateHash, int possibleNumToDelete)
@@ -96,30 +119,45 @@ struct SudokuCoordinatesHash* sudokuCoordinatesHashTableFind(struct SudokuCoordi
 // #########################################################
 // INTERACTING WITH SUDOKU BOARD
 
-void sudokuCoordinatesHashDeletePossibleNumAndHandleGuarantees(struct SudokuCoordinatesHash** hashTable, struct SudokuCoordinatesHash* hashItem, int possibleNumToDelete, char** sudokuBoard);
+void printBoard(char** board)
+{
+	const int NUM_SUDOKU_ROWS = 9, NUM_SUDOKU_COLUMNS = 9;
+
+	for (int rowIdx = 0; rowIdx < NUM_SUDOKU_ROWS; rowIdx++)
+	{
+		for (int columnIdx = 0; columnIdx < NUM_SUDOKU_COLUMNS; columnIdx++)
+		{
+			printf("%c ", board[rowIdx][columnIdx]);
+		}
+		printf("\n");
+	}
+}
+
 void sudokuCoordinatesHashTableHandleGuarantees(struct SudokuCoordinatesHash** hashTable, struct SudokuCoordinatesHash* hashItemToCheckForGuarantee, char** sudokuBoard)
 {
 	bool isGuarantee = hashItemToCheckForGuarantee->numPossibleNumbers == 1;
 	if (isGuarantee)
 	{
-		HASH_DEL(*hashTable, hashItemToCheckForGuarantee);
-
 		int guaranteedNumber = hashItemToCheckForGuarantee->possibleNumbersHashTable->numberKey;
-		sudokuCoordinatesHashDeletePossibleNum(hashItemToCheckForGuarantee, guaranteedNumber);
-
 		struct Coords hashItemCoords = hashItemToCheckForGuarantee->coords;
+
+		HASH_DEL(*hashTable, hashItemToCheckForGuarantee);
+		sudokuCoordinatesHashDeletePossibleNum(hashItemToCheckForGuarantee, guaranteedNumber);
 		free(hashItemToCheckForGuarantee);
+
 		sudokuBoard[hashItemCoords.row][hashItemCoords.column] = guaranteedNumber + '0';
 
 		const int NUM_SUDOKU_ROWS = 9, NUM_SUDOKU_COLUMNS = 9;
 		struct SudokuCoordinatesHash* hashItem;
+
+		// UPDATE POSSIBLE NUMBERS
 		// traverse the row
 		for (int rowIdx = 0; rowIdx < NUM_SUDOKU_ROWS; rowIdx++)
 		{
 			hashItem = sudokuCoordinatesHashTableFind(hashTable, coords(rowIdx, hashItemCoords.column));
 			if (hashItem)
 			{
-				sudokuCoordinatesHashDeletePossibleNumAndHandleGuarantees(hashTable, hashItem, guaranteedNumber, sudokuBoard);
+				sudokuCoordinatesHashDeletePossibleNum(hashItem, guaranteedNumber);
 			}
 		}
 
@@ -129,7 +167,7 @@ void sudokuCoordinatesHashTableHandleGuarantees(struct SudokuCoordinatesHash** h
 			hashItem = sudokuCoordinatesHashTableFind(hashTable, coords(hashItemCoords.row, columnIdx));
 			if (hashItem)
 			{
-				sudokuCoordinatesHashDeletePossibleNumAndHandleGuarantees(hashTable, hashItem, guaranteedNumber, sudokuBoard);
+				sudokuCoordinatesHashDeletePossibleNum(hashItem, guaranteedNumber);
 			}
 		}
 
@@ -144,17 +182,11 @@ void sudokuCoordinatesHashTableHandleGuarantees(struct SudokuCoordinatesHash** h
 				hashItem = sudokuCoordinatesHashTableFind(hashTable, coords(rowIdx, columnIdx));
 				if (hashItem)
 				{
-					sudokuCoordinatesHashDeletePossibleNumAndHandleGuarantees(hashTable, hashItem, guaranteedNumber, sudokuBoard);
+					sudokuCoordinatesHashDeletePossibleNum(hashItem, guaranteedNumber);
 				}
 			}
 		}
 	}
-}
-
-void sudokuCoordinatesHashDeletePossibleNumAndHandleGuarantees(struct SudokuCoordinatesHash** hashTable, struct SudokuCoordinatesHash* hashItem, int possibleNumToDelete, char** sudokuBoard)
-{
-	sudokuCoordinatesHashDeletePossibleNum(hashItem, possibleNumToDelete);
-	sudokuCoordinatesHashTableHandleGuarantees(hashTable, hashItem, sudokuBoard);
 }
 
 void sudokuCoordinatesHashFillInPossibleNumbers(struct SudokuCoordinatesHash* coordinateHash, char** sudokuBoard)
@@ -198,20 +230,148 @@ void sudokuCoordinatesHashFillInPossibleNumbers(struct SudokuCoordinatesHash* co
 	}
 }
 
-
-void solveSudoku(char** board, int boardSize, int* boardColSize) 
+char** sudokuBoardCreateCopy(char** originalBoard)
 {
 	const int NUM_SUDOKU_ROWS = 9, NUM_SUDOKU_COLUMNS = 9;
-	struct SudokuCoordinatesHash *hashItem, *hashTable = NULL;
+	char** copy = malloc(NUM_SUDOKU_ROWS * sizeof(char*));
 
+	for (int rowIdx = 0; rowIdx < NUM_SUDOKU_ROWS; rowIdx++)
+	{
+		copy[rowIdx] = malloc(NUM_SUDOKU_COLUMNS * sizeof(char));
+		memcpy(copy[rowIdx], originalBoard[rowIdx], NUM_SUDOKU_COLUMNS * sizeof(char));
+	}
+
+	return copy;
+}
+
+void sudokuBoardFreeCopy(char** copyBoard)
+{
+	const int NUM_SUDOKU_ROWS = 9;
+	for (int rowIdx = 0; rowIdx < NUM_SUDOKU_ROWS; rowIdx++)
+	{
+		free(copyBoard[rowIdx]);
+	}
+
+	free(copyBoard);
+}
+
+// ##############################################################
+
+bool solveSudokuHelper(char** board)
+{
+	printf("BOARD STATE:\n");
+	printBoard(board);
+	printf("\n");
+
+	const int NUM_SUDOKU_ROWS = 9, NUM_SUDOKU_COLUMNS = 9;
+	struct SudokuCoordinatesHash *hashItem, *tmp, *hashTable = NULL;
+
+	// get MANDATORY board state
 	for (int rowIdx = 0; rowIdx < NUM_SUDOKU_ROWS; rowIdx++)
 	{
 		for (int columnIdx = 0; columnIdx < NUM_SUDOKU_COLUMNS; columnIdx++)
 		{
-			hashItem = sudokuCoordinatesHashCreate(coords(rowIdx, columnIdx));
-			sudokuCoordinatesHashFillInPossibleNumbers(hashItem, board);
-			sudokuCoordinatesHashTableAdd(&hashTable, hashItem);
+			char square = board[rowIdx][columnIdx];
+			if (square == '.')
+			{
+				hashItem = sudokuCoordinatesHashCreate(coords(rowIdx, columnIdx));
+				sudokuCoordinatesHashFillInPossibleNumbers(hashItem, board);
+				// if there is ever a square that has no options, then this is simply an invalid board state
+				if (hashItem->numPossibleNumbers == 0)
+				{
+					free(hashItem);
+					sudokuCoordinatesHashTableDestroy(&hashTable);
+					return false;
+				}
+
+				sudokuCoordinatesHashTableAdd(&hashTable, hashItem);
+			}
+		}
+	}
+
+	bool hasReachedGuarantee = true;
+	while (hasReachedGuarantee)
+	{
+		hasReachedGuarantee = false;
+		HASH_ITER(hh, hashTable, hashItem, tmp)
+		{
+			if (hashItem->numPossibleNumbers <= 0)
+			{
+				sudokuCoordinatesHashTableDestroy(&hashTable);
+				return false;
+			}
+			else if (hashItem->numPossibleNumbers == 1) hasReachedGuarantee = true;
+
 			sudokuCoordinatesHashTableHandleGuarantees(&hashTable, hashItem, board);
 		}
 	}
+
+	printf("MANDATORY STATE:\n");
+	printBoard(board);
+	printf("\n");
+
+	if (HASH_COUNT(hashTable) == 0) return true;
+
+	// if hash map not empty, then board is not solved, venture into options
+	const int MAX_POSSIBLE_OPTIONS = 9;
+	struct SudokuCoordinatesHash *coordinatesHashItem, *coordinatesTmp;
+	struct PossibleNumbersHash *numbersHashItem, *numbersTmp;
+	for (int targetNumOptions = 2; targetNumOptions <= MAX_POSSIBLE_OPTIONS; targetNumOptions++)
+	{
+		HASH_ITER(hh, hashTable, coordinatesHashItem, coordinatesTmp)
+		{
+			if (coordinatesHashItem->numPossibleNumbers == targetNumOptions)
+			{
+				HASH_ITER(hh, coordinatesHashItem->possibleNumbersHashTable, numbersHashItem, numbersTmp)
+				{
+					char** copyBoard = sudokuBoardCreateCopy(board);
+					copyBoard[coordinatesHashItem->coords.row][coordinatesHashItem->coords.column] = numbersHashItem->numberKey + '0';
+
+					bool isSudokuSolved = solveSudokuHelper(copyBoard);
+					if (isSudokuSolved)
+					{
+						// copy the copied board into original board
+						for (int rowIdx = 0; rowIdx < NUM_SUDOKU_ROWS; rowIdx++)
+						{
+							memcpy(board[rowIdx], copyBoard[rowIdx], NUM_SUDOKU_COLUMNS * sizeof(char));
+						}
+
+						sudokuBoardFreeCopy(copyBoard);
+						sudokuCoordinatesHashTableDestroy(&hashTable);
+						return true;
+					}
+					else sudokuBoardFreeCopy(copyBoard);
+				}
+			}
+		}
+	}
+
+	// all options have been exhausted, meaning board in its given state is unsolvable
+	sudokuCoordinatesHashTableDestroy(&hashTable);
+	return false;
+}
+
+void solveSudoku(char** board, int boardSize, int* boardColSize) 
+{
+	solveSudokuHelper(board);
+}
+
+
+int main()
+{
+	char structBoard[9][9] = {{'.','.','9','7','4','8','.','.','.'},{'7','.','.','.','.','.','.','.','.'},{'.','2','.','1','.','9','.','.','.'},{'.','.','7','.','.','.','2','4','.'},{'.','6','4','.','1','.','5','9','.'},{'.','9','8','.','.','.','3','.','.'},{'.','.','.','8','.','3','.','2','.'},{'.','.','.','.','.','.','.','.','6'},{'.','.','.','2','7','5','9','.','.'}};
+	char** board = malloc(9 * sizeof(char*));
+	for (int idx = 0; idx < 9; idx++)
+	{
+		board[idx] = malloc(9 * sizeof(char));
+		memcpy(board[idx], structBoard[idx], 9 * sizeof(char));
+	}
+
+	/* printBoard(board); */
+
+	int bruh = 9;
+	solveSudoku(board, 9, &bruh);
+	/* printf("\n"); */
+
+	printBoard(board);
 }

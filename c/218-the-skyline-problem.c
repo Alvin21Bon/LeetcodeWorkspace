@@ -197,13 +197,22 @@ int buildingCornerCompare(const void* const corner1, const void* const corner2)
 	const union BuildingCorner* const castedCorner2 = (const union BuildingCorner* const)corner2;
 
 	if (castedCorner1->x < castedCorner2->x) return 1;
-	else if (castedCorner1->x == castedCorner2->x) 
+	if (castedCorner1->x == castedCorner2->x) 
 	{
-		if (castedCorner1->y > castedCorner2->y) return 1;
-		else if (castedCorner1->y == castedCorner2->y) return 0;
-		else return -1;
+		if (castedCorner1->side == LEFT && castedCorner2->side == RIGHT) return 1;
+		if (castedCorner1->side == castedCorner2->side) 
+		{
+			if (castedCorner1->y == castedCorner2->y) return 0;
+			if (castedCorner1->side == LEFT && castedCorner1->y > castedCorner2->y) return 1;
+			if (castedCorner1->side == RIGHT && castedCorner1->y < castedCorner2->y) return 1;
+
+			return -1;
+		}
+
+		return -1;
 	}
-	else return -1;
+
+	return -1;
 }
 
 // ############################################################################################
@@ -252,31 +261,68 @@ int** getSkyline(int** buildings, int buildingsSize, int* buildingsColSize, int*
 		heapInsert(&buildingCornerHeap, &buildingCornerRight);
 	}
 
-	*returnColumnSizes = malloc(sizeof(int));
-	**returnColumnSizes = 2;
 
 	int** skyline = malloc(buildingsSize * 2 * sizeof(*skyline));
 	*returnSize = 0; // will be updated as we add points to the array
-	
+	*returnColumnSizes = malloc(buildingsSize * 2 * sizeof(int));
+
 	struct Heap heightInstanceHeap = heapInit(sizeof(struct HeightInstance), buildingsSize, heightInstanceCompare);
 	while (!heapIsEmpty(&buildingCornerHeap))
 	{
 		union BuildingCorner cornerPoint = *(union BuildingCorner*)(heapPeek(&buildingCornerHeap));
 		heapDelete(&buildingCornerHeap, &cornerPoint);
 
-		struct HeightInstance lookup = heightInstance(cornerPoint.y);
-		long idxOfHeightItem = heapFind(&heightInstanceHeap, &lookup);
-		struct HeightInstance* heightItem = (struct HeightInstance*)(dynamicArrayGet(&heightInstanceHeap.array, idxOfHeightItem));
+		const struct HeightInstance heightItem = heightInstance(cornerPoint.y);
+		const struct HeightInstance* const greatestHeightInstance = (struct HeightInstance*)(heapPeek(&heightInstanceHeap));
+		const int heightItemToGreatestInHeapCompare = greatestHeightInstance != NULL ? heightInstanceCompare(&heightItem, greatestHeightInstance) : 1;
 
-		struct HeightInstance* topHeightHeapItem = *(struct HeightInstance*)(heapPeek(&heightInstanceHeap));
-		bool isValid;
-		if (heightItem)
+		const long idxOfHeightItemIfInHeap = heapFind(&heightInstanceHeap, &heightItem);
+		struct HeightInstance* heightItemInHeap = (struct HeightInstance*)(dynamicArrayGet(&heightInstanceHeap.array, idxOfHeightItemIfInHeap));
+
+		// manipulating height heap
+		if (heightItemInHeap)
 		{
+			if (cornerPoint.side == LEFT) heightItemInHeap->numInstances++;
+			else if (cornerPoint.side == RIGHT) heightItemInHeap->numInstances--;
+
+			if (heightItemInHeap->numInstances == 0) heapDelete(&heightInstanceHeap, heightItemInHeap);
 		}
 		else
 		{
-			// guaranteed to be a left side point
+			heapInsert(&heightInstanceHeap, &heightItem);
+		}
 
+		// invalid point checks
+		bool isPointValid = true;
+		if (heightItemToGreatestInHeapCompare < 0) isPointValid = false;
+		else if (heightItemToGreatestInHeapCompare == 0)
+		{
+			if (cornerPoint.side == LEFT) isPointValid = false;
+			else if (cornerPoint.side == RIGHT)
+			{
+				// if greatest height in heap is still the same height, then this point is invalid
+				const struct HeapInstance* const currentGreatestHeightInstance = (struct HeapInstance*)heapPeek(&heightInstanceHeap);
+				if (currentGreatestHeightInstance != NULL && heightInstanceCompare(&heightItem, currentGreatestHeightInstance) == 0) isPointValid = false;
+			}
+		}
+
+		// adding new point to return array if it is valid
+		if (isPointValid)
+		{
+			skyline[*returnSize] = malloc(2 * sizeof(int));
+			memcpy(skyline[*returnSize], cornerPoint.e, 2 * sizeof(int));
+			if (cornerPoint.side == RIGHT) skyline[*returnSize][1] = heapIsEmpty(&heightInstanceHeap) ? 0 : ((struct HeightInstance*)heapPeek(&heightInstanceHeap))->height;
+
+			(*returnColumnSizes)[*returnSize] = 2;
+			(*returnSize)++;
 		}
 	}
+
+	skyline = realloc(skyline, *returnSize * sizeof(*skyline));
+	*returnColumnSizes = realloc(*returnColumnSizes, *returnSize * sizeof(int));
+	heapDestroy(&buildingCornerHeap);
+	heapDestroy(&heightInstanceHeap);
+
+	return skyline;
 }
+

@@ -25,23 +25,22 @@ struct HashTable {
 	struct HashEntry* buckets[TABLE_SIZE];
 };
 
-struct HashTable createHashTable()
+struct HashTable createHash()
 {
-	struct HashTable hashTable;
-	memset(hashTable.buckets, 0, sizeof(hashTable.buckets));
-
-	return hashTable;
+	struct HashTable table;
+	memset(table.buckets, 0, sizeof(table.buckets));
+	return table;
 }
 
 struct HashEntry* find(struct HashTable* table, int num)
 {
 	int hashedNum = hash(&num);
-	struct HashEntry* hashEntry = table->buckets[hashedNum];
+	struct HashEntry* entry = table->buckets[hashedNum];
 
-	if (hashEntry)
+	if (entry)
 	{
-		struct HashEntry* cur = hashEntry;
-		while  (cur)
+		struct HashEntry* cur = entry;
+		while (cur)
 		{
 			if (cur->num == num) return cur;
 			cur = cur->next;
@@ -54,53 +53,42 @@ struct HashEntry* find(struct HashTable* table, int num)
 void insert(struct HashTable* table, int num, int index)
 {
 	int hashedNum = hash(&num);
-	struct HashEntry* hashEntry = table->buckets[hashedNum];
+	struct HashEntry* entry = table->buckets[hashedNum];
 
-	if (hashEntry)
+	struct HashEntry* newEntry = malloc(sizeof(struct HashEntry));
+	newEntry->index = index;
+	newEntry->num = num;
+
+	if (entry)
 	{
-		struct HashEntry* cur = hashEntry;
-		while (cur->next != NULL)
-	 	{
-	 		if (cur->num == num) return;
-	 		cur = cur->next;
-	 	}
-
-		struct HashEntry* entry = malloc(sizeof(struct HashEntry));
-		entry->index = index;
-		entry->num = num;
-		entry->next = NULL;
-
-		cur->next = entry;
+		newEntry->next = entry;
+		table->buckets[hashedNum] = newEntry;
 		return;
 	}
 
-	struct HashEntry* entry = malloc(sizeof(struct HashEntry));
-	entry->index = index;
-	entry->num = num;
-	entry->next = NULL;
-
-	table->buckets[hashedNum] = entry;
+	newEntry->next = NULL;
+	table->buckets[hashedNum] = newEntry;
 }
 
 int* twoSum(int* nums, int numsSize, int target, int* returnSize) 
 {
-	struct HashTable table = createHashTable();
-
-	int* retArr = malloc(sizeof(int) * 2);
+	struct HashTable table = createHash();
+	int* ret = malloc(2 * sizeof(int));
 	*returnSize = 2;
 
 	for (int i = 0; i < numsSize; i++)
 	{
-		int neededNum = target - nums[i];
-		struct HashEntry* entry = find(&table, neededNum);
-		if (entry)
+		int num = nums[i];
+		int neededNum = target - num;
+		struct HashEntry* neededEntry = find(&table, neededNum);
+		if (neededEntry)
 		{
-			retArr[0] = i;
-			retArr[1] = entry->index;
-			return retArr;
+			ret[0] = neededEntry->index;
+			ret[1] = i;
+			return ret;
 		}
 
-		insert(&table, nums[i], i);
+		insert(&table, num, i);
 	}
 
 	return NULL;
